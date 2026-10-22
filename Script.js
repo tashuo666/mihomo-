@@ -1,6 +1,7 @@
 /**
  * mihomo配置覆写脚本（精简版）
  * 本地优化：IPv6 优先 + DNS 全加密（2026-10-14）
+ * 二次修改：新增哔哩哔哩（B站）分流规则；AAAA/IPv6 全链路放行且优先
  * 作者：AIsouler
  * 源仓库：https://github.com/AIsouler/MyClash
  * 脚本链接：https://raw.githubusercontent.com/AIsouler/MyClash/main/Script/Script.js
@@ -27,6 +28,7 @@ const ruleOptionsEnable = {
   AI: true, // 国外AI服务
   Telegram: true, // Telegram通讯软件
   Steam: true, // Steam游戏平台
+  BiliBili: true, // 哔哩哔哩：境内直连、境外（港澳台/番剧）走代理
   AdBlock: true, // 广告拦截
 
   // 以下为非分流策略配置
@@ -40,7 +42,7 @@ const ruleOptionsEnable = {
   过滤非地区节点: true, // 是否过滤非地区节点
   屏蔽国外QUIC: true, // 是否屏蔽国外QUIC流量
   代理IPV4优先: false, // 是否将订阅节点统一为 IPv4 优先（与“代理IPV6优先”同时开启时不生效）
-  代理IPV6优先: false, // 仅对「域名型节点」的解析偏好生效（IP 节点无效果）；IPv6 流量优先由「直连组」/系统层实现
+  代理IPV6优先: false, // 仅对「域名型节点」的解析偏好生效（IP 节点无效果）。实测本机 IPv6 188ms vs IPv4 39ms，默认不强开；需要时改 true
   链式代理: false, // 是否启用链式代理（自定义节点作为落地节点，经“链式中转”策略组中转）
 };
 
@@ -53,6 +55,17 @@ const prefixRules = [
   'RULE-SET,geolocation-cn,直连',
   'RULE-SET,games_cn,直连', // 已包含 steam 下载域名
   'RULE-SET,epicgames,直连',
+  // 哔哩哔哩（B站）PCDN 节点：直接 REJECT。
+  // 为什么不能只靠 DNS 黑洞：PCDN 域名常落到「漏网之鱼」走远端代理，由远端节点解析并回填缓存，
+  // 旧的 A 记录会使 DNS 策略失效 → 播放器仍连上 PCDN 节点导致卡顿。
+  // 在规则层直接拒绝，可保证无论 DNS 返回什么都不会真正连到 PCDN。
+  'DOMAIN-SUFFIX,mcdn.bilivideo.com,REJECT',
+  'DOMAIN-SUFFIX,mcdn.bilivideo.cn,REJECT',
+  'DOMAIN-SUFFIX,edge.mountaintoys.cn,REJECT',
+  'DOMAIN-SUFFIX,h2.smtcdns.net,REJECT',
+  // 哔哩哔哩（B站）：境外域名（bilibili.tv、海外 CDN 等）必须先判，否则会被下面的 bilibili 主规则集抢先直连
+  'RULE-SET,bilibili-!cn,BiliBili',
+  'RULE-SET,bilibili,直连', // B站境内主站/接口/CDN 域名 → 直连
   'RULE-SET,apple_cn,直连',
   'RULE-SET,microsoft_cn,直连',
   'DOMAIN,fsend.cn,直连',
@@ -281,6 +294,26 @@ const baseRuleProviders = {
     path: './ruleset/douyin.mrs',
     'path-in-bundle': 'geo/geosite/douyin.mrs',
   },
+
+  // --- 哔哩哔哩（B站）规则集 ---
+  bilibili: {
+    ...ruleProviderCommonDomain,
+    url: `${ruleSetBaseUrl}geosite/bilibili.mrs`,
+    path: './ruleset/bilibili.mrs',
+    'path-in-bundle': 'geo/geosite/bilibili.mrs',
+  },
+  'bilibili-!cn': {
+    ...ruleProviderCommonDomain,
+    url: `${ruleSetBaseUrl}geosite/bilibili@!cn.mrs`,
+    path: './ruleset/bilibili@!cn.mrs',
+    'path-in-bundle': 'geo/geosite/bilibili@!cn.mrs',
+  },
+  bilibili_ip: {
+    ...ruleProviderCommonIpcidr,
+    url: `${ruleSetBaseUrl}geoip/bilibili.mrs`,
+    path: './ruleset/bilibili_ip.mrs',
+    'path-in-bundle': 'geo/geoip/bilibili.mrs',
+  },
 };
 
 // 策略组公共配置
@@ -347,6 +380,15 @@ const serviceConfigs = [
     },
     icon: `${iconBaseUrl}Google.svg`,
     rules: ['RULE-SET,google,Google', 'RULE-SET,google_ip,Google,no-resolve'],
+  },
+  {
+    name: 'BiliBili',
+    baseOption: selectBaseOption,
+    direct: true,
+    // 该组的 rule-providers 已统一在 baseRuleProviders 中定义（bilibili / bilibili-!cn / bilibili_ip），
+    // 此处不再重复声明；组内规则已由 prefixRules 的 bilibili-!cn 前置接管
+    icon: `${iconBaseUrl}Bilibili.svg`,
+    rules: [],
   },
   {
     name: 'AI',
@@ -1116,6 +1158,11 @@ function simplifyDomainPolicy(policy) {
 function buildDnsAndHostsConfig(config, filteredProxies) {
   const originalDnsConfig = config.dns || {};
 
+  // 哔哩哔哩 PCDN 黑洞地址：nameserver-policy 直接返回该地址，使 PCDN 节点不可达，
+  // 迫使 B 站播放器回落到官方 CDN（upos-sz-mirror*.bilivideo.com），从而解决卡顿。
+  // 必须声明在 dns 对象之前（nameserver-policy 会引用它）。
+  const BILIBILI_PCDN_SINK = ['0.0.0.0', '::'];
+
   const proxyServerNameservers = originalDnsConfig['proxy-server-nameserver'] || [];
   const listenValue = originalDnsConfig['listen'];
 
@@ -1205,7 +1252,15 @@ function buildDnsAndHostsConfig(config, filteredProxies) {
     'nameserver-policy': {
       'rule-set:private': 'system',
       'rule-set:douyin': ['https://223.5.5.5/dns-query#DIRECT', 'https://doh.pub/dns-query#DIRECT'], // 原 system/字节明文在本网络会被中间层接管 → 改用加密 DNS
+      'rule-set:bilibili': chinaDNS, // B站域名按国内加密 DNS 解析，保留 AAAA 记录
       'rule-set:cn': chinaDNS,
+      // 哔哩哔哩 PCDN 域名：在 DNS 层直接返回黑洞地址。
+      // 不用只靠上面 hosts 的原因：fake-ip 模式下已缓存/已解析的 PCDN 子域会绕过 hosts，
+      // 导致视频真实播放域名（如 xxx.edge.mountaintoys.cn）解析出真实 IP 并漏到「漏网之鱼」走代理。
+      '+.mcdn.bilivideo.com': BILIBILI_PCDN_SINK,
+      '+.mcdn.bilivideo.cn': BILIBILI_PCDN_SINK,
+      '+.edge.mountaintoys.cn': BILIBILI_PCDN_SINK,
+      '+.h2.smtcdns.net': BILIBILI_PCDN_SINK,
     },
     'direct-nameserver': chinaDNS,
     'direct-nameserver-follow-policy': true,
@@ -1219,7 +1274,9 @@ function buildDnsAndHostsConfig(config, filteredProxies) {
     // 解决谷歌商店无法下载的问题
     'services.googleapis.cn': 'services.googleapis.com',
 
-    // 屏蔽哔哩哔哩PCDN，解决访问视频/直播卡顿问题（同时屏蔽 IPv6，避免 AAAA 穿透）
+    // 屏蔽哔哩哔哩PCDN，解决访问视频/直播卡顿问题
+    // 双保险：hosts（拦截常规查询）+ nameserver-policy（拦截已缓存/绕过 hosts 的查询）
+    // 同时黑 A(0.0.0.0) 与 AAAA(::)，否则播放器可能改用 IPv6 连上 PCDN 节点
     '+.mcdn.bilivideo.com': ['0.0.0.0', '::'],
     '+.mcdn.bilivideo.cn': ['0.0.0.0', '::'],
     '+.edge.mountaintoys.cn': ['0.0.0.0', '::'],
