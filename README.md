@@ -1,5 +1,29 @@
 # B 站增强版 mihomo 覆写脚本
 
+## 快捷覆写 URL
+
+在 Bettbox / Clash Verge Rev 的「覆写脚本」处填入下面地址即可引用（GitHub Raw）：
+
+```
+https://raw.githubusercontent.com/tashuo666/mihomo-/main/Script.js
+```
+
+国内网络访问 `raw.githubusercontent.com` 常被干扰（实测直连超时 24s 无响应），建议直接用加速镜像：
+
+```
+https://ghfast.top/https://raw.githubusercontent.com/tashuo666/mihomo-/main/Script.js
+```
+
+```
+https://gh-proxy.com/https://raw.githubusercontent.com/tashuo666/mihomo-/main/Script.js
+```
+
+> 上述两个镜像实测均返回完整文件（44664 字节），`ghfast.top` 约 2s、`gh-proxy.com` 约 5.5s。
+> 镜像服务可用性会变化，失效时换用其他 GitHub 加速前缀，保留后面的原始路径即可。
+
+> URL 引用方式会随仓库更新自动生效，无需重新导入。
+> 若内核缓存了旧解析结果，更换脚本后请清一次 `cache.db` 或重启内核。
+
 在 [AIsouler/MyClash](https://github.com/AIsouler/MyClash) 的 `Script.js` 基础上二次修改，新增哔哩哔哩（B 站）分流规则，并修正 PCDN 漏网导致的视频卡顿问题。
 
 ## 适用场景
