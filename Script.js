@@ -58,8 +58,8 @@ const scholarDirectDomains = [
   'cnki.net', 'cnki.com.cn', 'wanfangdata.com.cn', 'cqvip.com',
   'chaoxing.com', 'superlib.net', 'ssreader.com', 'edu.cn',
   'nstl.gov.cn', 'sciencechina.cn',
-  // Web of Science / Clarivate
-  'webofscience.com', 'webofknowledge.com', 'clarivate.com', 'clarivate.com.cn',
+  // Web of Science / Clarivate（clarivate.cn = 中国站 webofscience.clarivate.cn，登录跳转终点，必须一起直连）
+  'webofscience.com', 'webofknowledge.com', 'clarivate.com', 'clarivate.com.cn', 'clarivate.cn',
   'isiknowledge.com', 'incites.com', 'endnote.com', 'publons.com', 'masterjournallist.com',
   // Elsevier / ScienceDirect / Scopus / EI Compendex（含 PDF / CDN 域名）
   'sciencedirect.com', 'sciencedirectassets.com', 'elsevier.com', 'elsevierhealth.com',
