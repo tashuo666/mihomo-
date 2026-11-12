@@ -64,6 +64,57 @@ const ruleOptionsEnable = {
   链式代理: false, // 是否启用链式代理（自定义节点作为落地节点，经“链式中转”策略组中转）
 };
 
+// --- 学术 / 论文网站直连清单（2026-11-12）---
+// 背景：脚本末尾的 `RULE-SET,geolocation-!cn,默认代理` 会让所有境外数据库走代理，
+// 但高校订阅多数按「校园网出口 IP」授权，流量从代理节点出去会被判为校外用户、拿不到全文。
+// 中文库（cnki / wanfang / cqvip / edu.cn）本来已在 geolocation-cn 内直连，此处显式列出防止规则集变动。
+// 实测（校园网强制直连）：cnki 200 / WoS 302 / ScienceDirect 200 / Springer 303 / doi.org 200；
+// Wiley、ACS 返回 Cloudflare challenge（浏览器可过，走代理同样 403，与分流无关）。
+// Google Scholar 直连超时，故不纳入，仍由 Google 策略组走代理；需要时自行加 'scholar.google.com'。
+const scholarDirectDomains = [
+  // 中文数据库 / 教育网统一身份认证（含 CARSI、cqu.edu.cn）
+  'cnki.net', 'cnki.com.cn', 'wanfangdata.com.cn', 'cqvip.com',
+  'chaoxing.com', 'superlib.net', 'ssreader.com', 'edu.cn',
+  'nstl.gov.cn', 'sciencechina.cn',
+  // Web of Science / Clarivate
+  'webofscience.com', 'webofknowledge.com', 'clarivate.com', 'clarivate.com.cn',
+  'isiknowledge.com', 'incites.com', 'endnote.com', 'publons.com', 'masterjournallist.com',
+  // Elsevier / ScienceDirect / Scopus / EI Compendex（含 PDF / CDN 域名）
+  'sciencedirect.com', 'sciencedirectassets.com', 'elsevier.com', 'elsevierhealth.com',
+  'els-cdn.com', 'linkinghub.elsevier.com', 'scopus.com', 'scival.com',
+  'engineeringvillage.com', 'clinicalkey.com',
+  // Springer Nature
+  'springer.com', 'springernature.com', 'springerlink.com', 'nature.com',
+  'biomedcentral.com', 'media.springernature.com',
+  // Wiley / Atypon 平台（ACS、T&F、Wiley 的 PDF 多由 literatumonline.com 下发，必须一起直连）
+  'wiley.com', 'wileyonlinelibrary.com', 'atypon.com', 'literatumonline.com',
+  // Taylor & Francis / Sage / Cambridge / Oxford
+  'tandfonline.com', 'taylorandfrancis.com', 'tandf.co.uk', 'sagepub.com',
+  'cambridge.org', 'oup.com',
+  // 学会与出版社（材料 / 化学 / 物理 / 工程常用）
+  'acs.org', 'rsc.org', 'iop.org', 'aip.org', 'aps.org', 'ieee.org',
+  'asme.org', 'aiaa.org', 'science.org', 'sciencemag.org', 'aaas.org', 'pnas.org', 'jstor.org',
+  // 文摘索引 / 预印本 / 开放获取
+  'arxiv.org', 'nih.gov', 'pubmed.gov', 'mdpi.com', 'frontiersin.org', 'plos.org',
+  'semanticscholar.org', 'researchgate.net', 'ebsco.com', 'ebscohost.com', 'proquest.com',
+  // DOI / 元数据 / 学术身份
+  'doi.org', 'crossref.org', 'datacite.org', 'orcid.org',
+];
+
+// 展开为 DOMAIN-SUFFIX 规则：放进 prefixRules，天然优先于所有功能组与 geolocation-!cn 兜底
+const scholarDirectRules = scholarDirectDomains.map((d) => `DOMAIN-SUFFIX,${d},直连`);
+
+// 校园网明文 UDP 53 会被中间层接管 → 直连域名必须配加密 DNS，否则规则命中了也连不上
+const scholarDNS = [
+  'https://223.5.5.5/dns-query#DIRECT',
+  'https://doh.pub/dns-query#DIRECT',
+  'tls://223.5.5.5#DIRECT',
+];
+const scholarDnsPolicy = scholarDirectDomains.reduce((acc, d) => {
+  acc[`+.${d}`] = scholarDNS;
+  return acc;
+}, {});
+
 // 定义前置规则
 const prefixRules = [
   // 规则集下载域名，避免出现鸡蛋问题
@@ -83,6 +134,8 @@ const prefixRules = [
   'DOMAIN-SUFFIX,mcdn.bilivideo.cn,REJECT',
   'DOMAIN-SUFFIX,edge.mountaintoys.cn,REJECT',
   'DOMAIN-SUFFIX,h2.smtcdns.net,REJECT',
+
+  ...scholarDirectRules, // 学术 / 论文网站 → 直连（优先于下方所有代理组与 geolocation-!cn 兜底）
 
   // 国内直连
   'RULE-SET,geolocation-cn,直连',
@@ -1800,6 +1853,7 @@ function buildDnsAndHostsConfig(config, filteredProxies) {
     }),
     nameserver: foreignDNS,
     'nameserver-policy': {
+      ...scholarDnsPolicy, // 学术站点直连 → 走加密 DNS（校园网明文 UDP 53 被劫持）
       'rule-set:private': 'system',
       'rule-set:douyin': ['system', '180.184.1.1', '180.184.2.2'],
       'rule-set:bilibili': chinaDNS, // B站域名按国内 DNS 解析，保留 AAAA 记录
